@@ -1,6 +1,9 @@
 package com.learninggrammer.basicgrammergame.domain;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -12,15 +15,12 @@ import java.util.List;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-@ToString
-public class Question {
+public class QuestionResponse {
 
     @Id
     private String id;
     private String statement;
     private List<String> options = new ArrayList<String>();
-    private String answer;
-
     private String type;
 
 

@@ -2,6 +2,7 @@ package com.learninggrammer.basicgrammergame.config;
 
 import com.learninggrammer.basicgrammergame.bootstrap.Dataloader;
 import com.learninggrammer.basicgrammergame.handlers.QuizHandler;
+import com.learninggrammer.basicgrammergame.repositories.AttemptLogRepository;
 import com.learninggrammer.basicgrammergame.repositories.QuizRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,6 +11,7 @@ import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerResponse;
 
+import javax.validation.Validator;
 import javax.xml.crypto.Data;
 
 import static org.springframework.web.reactive.function.server.RequestPredicates.*;
@@ -25,8 +27,8 @@ public class RouterConfig {
     }
 
     @Bean
-    public QuizHandler quizHandler(QuizRepository quizRepository)    {
-        return new QuizHandler(quizRepository);
+    public QuizHandler quizHandler(QuizRepository quizRepository, AttemptLogRepository attemptLogRepository, Validator validator)    {
+        return new QuizHandler(quizRepository, attemptLogRepository, validator);
     }
     @Bean
     public Dataloader dataloader(QuizRepository quizRepository)    {
