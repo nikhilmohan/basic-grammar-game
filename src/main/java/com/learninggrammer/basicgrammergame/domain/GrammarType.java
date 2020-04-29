@@ -1,9 +1,9 @@
 package com.learninggrammer.basicgrammergame.domain;
 
 public enum GrammarType {
-    GROUPING_WORDS("grouping_words"),
-    PLURALS("plurals"),
-    SYNONYMS("synonyms"),
+    GROUPING_WORDS("grouping"),
+    PLURALS("plural"),
+    SYNONYMS("synonym"),
     HAVE_HAS("have_has"),
     IS_AM_ARE("is_am_are"),
     SIMILE("simile"),

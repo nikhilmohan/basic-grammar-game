@@ -7,11 +7,14 @@ import com.learninggrammer.basicgrammergame.domain.QuizAttempt;
 import com.learninggrammer.basicgrammergame.repositories.QuizRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import reactor.core.publisher.Flux;
 
 import java.util.Arrays;
 
 @Slf4j
+
+@Profile("!test")
 public class Dataloader implements CommandLineRunner {
 
     QuizRepository quizRepository;
@@ -44,10 +47,10 @@ public class Dataloader implements CommandLineRunner {
 
         Flux.fromIterable(Arrays.asList(question, question1, question2))
                 .flatMap(quizRepository::save)
-                .log()
-                .blockLast();
+                .log();
+           //     .blockLast();
 
-        log.info("Saved to DB " + quizRepository.count().block());
+        log.info("Saved to DB " + quizRepository.count());
 
         QuizAttempt quizAttempt = new QuizAttempt();
         quizAttempt.setPlayerId("ABC");

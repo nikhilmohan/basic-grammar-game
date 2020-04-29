@@ -7,9 +7,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.data.mongo.DataMongoTest;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -27,6 +30,7 @@ import static org.springframework.web.reactive.function.BodyInserters.fromValue;
 @SpringBootTest
 @AutoConfigureWebTestClient
 @Slf4j
+@ActiveProfiles("test")
 class QuizHandlerTest {
     @Autowired
     WebTestClient webTestClient;
@@ -94,6 +98,50 @@ class QuizHandlerTest {
                                 .findAny().get().isResult(), true);
         assertEquals(quizAttemptResponse.getAnswers().stream().filter(aqn1->aqn1.getId().equals("pqr"))
                 .findAny().get().isResult(), false);
+
+
+
+    }
+
+    @Test
+    public void testReduce()    {
+        QuizAttempt quizAttempt = new QuizAttempt();
+        quizAttempt.setPlayerId("abcd");
+        AnsweredQuestion aqn = new AnsweredQuestion();
+        aqn.setGivenAnswer("swarm");
+        aqn.setId("xyz");
+        aqn.setResult(false);
+        AnsweredQuestion aqn1 = new AnsweredQuestion();
+        aqn1.setGivenAnswer("bunch1");
+        aqn1.setId("pqr");
+        aqn1.setResult(false);
+        quizAttempt.getAnswers().addAll(Arrays.asList(aqn, aqn1));
+
+        Flux<Question> questionFlux = Flux.fromStream(questions.stream());
+
+        Mono<QuizAttempt> quizAttemptMono = questionFlux
+                .map(question-> question)
+                .reduce(quizAttempt, (  qAttempt,   question)-> {
+                    qAttempt.getAnswers().stream().filter(aq -> question.getId().equalsIgnoreCase(aq.getId()))
+                            .findAny()
+                            .ifPresent(answeredQuestion -> answeredQuestion.setResult
+                                    (question.getAnswer().equalsIgnoreCase(answeredQuestion.getGivenAnswer())));
+
+
+                    return qAttempt;
+                        })
+                .map(quizAttempt1 -> {
+                    AttemptLog attemptLog = new AttemptLog();
+                    return attemptLogRepository.save(attemptLog);
+
+                }).flatMap(attemptLogMono -> Mono.just(quizAttempt));
+
+        StepVerifier.create(quizAttemptMono)
+                .expectSubscription()
+                .expectNext(quizAttempt)
+                .verifyComplete();
+
+
 
 
 

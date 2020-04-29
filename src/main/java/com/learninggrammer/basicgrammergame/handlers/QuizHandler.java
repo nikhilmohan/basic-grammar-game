@@ -3,9 +3,10 @@ package com.learninggrammer.basicgrammergame.handlers;
 import com.learninggrammer.basicgrammergame.domain.*;
 import com.learninggrammer.basicgrammergame.repositories.AttemptLogRepository;
 import com.learninggrammer.basicgrammergame.repositories.QuizRepository;
-import io.swagger.models.auth.In;
+
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
+import org.springframework.data.mongodb.core.aggregation.ArrayOperators;
 import org.springframework.http.MediaType;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.web.multipart.support.StandardMultipartHttpServletRequest;
@@ -13,7 +14,7 @@ import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import springfox.documentation.service.Server;
+
 
 
 import javax.validation.Validator;
@@ -23,12 +24,16 @@ import java.util.*;
 import java.util.function.*;
 import java.util.stream.*;
 
+import static java.util.stream.Collectors.toList;
 import static org.springframework.web.reactive.function.BodyInserters.fromPublisher;
 import static org.springframework.web.reactive.function.BodyInserters.fromValue;
 
 @Slf4j
 public class QuizHandler {
     private static final int QUIZ_SIZE = 2;
+    private static final int QUESTION_ID_BEGIN = 100;
+    private static final int QUESTION_ID_END = 153;
+
     private QuizRepository quizRepository;
     private AttemptLogRepository attemptLogRepository;
     private boolean evaluationStatus = false;
@@ -38,15 +43,23 @@ public class QuizHandler {
         this.attemptLogRepository = attemptLogRepository;
         this.validator = validator;
     }
-
+    private boolean pickQuestion(Question question, List<Integer> indices)
+    {
+       log.info("indices : " + indices + " - " + question.getQuestionId());
+       return indices.stream().anyMatch(x -> x == Integer.parseInt(question.getQuestionId()));
+    }
     public Mono<ServerResponse> getQuestions(ServerRequest serverRequest) {
-        Mono<Quiz> questions;
+
+        List<Integer> listToPick = new Random().ints(QUIZ_SIZE, QUESTION_ID_BEGIN, QUESTION_ID_END)
+                .boxed()
+                .collect(toList());
+
+        Quiz quiz;
         try {
-            Quiz quiz = new Quiz();
+            quiz = new Quiz();
             log.info("Got request");
-            questions = quizRepository.findAll()
-                    .take(QUIZ_SIZE)
-                    //     .onErrorResume(Mono.error(()->new BGGException("Data not found"))
+            return quizRepository.findAll().log()
+                    .filter(question -> pickQuestion(question, listToPick))
                     .map(question -> {
                         QuestionResponse qResponse = new QuestionResponse();
                         qResponse.setId(question.getId());
@@ -54,15 +67,16 @@ public class QuizHandler {
                         qResponse.setStatement(question.getStatement());
                         qResponse.setType(question.getType());
                         quiz.getQuestions().add(qResponse);
-
+                        log.info("Retrieved question " + qResponse.getStatement());
                         return qResponse;
-                    }).then(Mono.just(quiz));
+                    }).then(Mono.just(quiz))
+            .flatMap(quiz1 -> ServerResponse.ok()
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(Mono.just(quiz1), Quiz.class));
         } catch(RuntimeException e) {
             throw new BGGException(500, e.getMessage());
         }
-        return ServerResponse.ok()
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(questions, Quiz.class);
+
     }
 
     private boolean isRequestInvalid(QuizAttempt qa)    {
@@ -71,43 +85,37 @@ public class QuizHandler {
                 qa.getAnswers().size() != QUIZ_SIZE;
     }
 
-    private Mono<QuizAttempt> evaluateAttempt(Mono<QuizAttempt> quizAttempt)  {
-        AttemptLog attemptLog = new AttemptLog();
-        attemptLog.setTimestamp(LocalDateTime.now());
-
-
+    private Mono<QuizAttempt> evaluateAttempt(Mono<QuizAttempt> quizAttempt) {
         return quizAttempt.flatMap(qa -> {
-            if (isRequestInvalid(qa))  {
+            if (isRequestInvalid(qa)) {
                 log.info("Validator found something");
                 qa.setInvalidateAttempt(true);
                 return Mono.just(qa);
             }
-            attemptLog.setPlayerId(qa.getPlayerId());
             Stream<Mono<Question>> monoStream = qa.getAnswers().stream()
-                    .flatMap(aq->Stream.of(quizRepository.findById(aq.getId()).log()
+                    .flatMap(aq -> Stream.of(quizRepository.findById(aq.getId()).log()
                             .switchIfEmpty(Mono.error(new RuntimeException("no data")))));
-            Flux<Question> questionFlux = Flux.fromStream(monoStream).flatMap(questionMono -> Flux.from(questionMono));
-            questionFlux
-                    .subscribe(question -> {
-                        log.info("Evaluating answer " + question.getId() );
-                        qa.getAnswers().stream().filter(aq -> question.getId().equalsIgnoreCase(aq.getId()))
+            return Flux.fromStream(monoStream).flatMap(questionMono -> Flux.from(questionMono))
+                    .reduce(qa, (  qAttempt,   question)-> {
+                        qAttempt.getAnswers().stream().filter(aq -> question.getId().equalsIgnoreCase(aq.getId()))
                                 .findAny()
                                 .ifPresent(answeredQuestion -> answeredQuestion.setResult
                                         (question.getAnswer().equalsIgnoreCase(answeredQuestion.getGivenAnswer())));
-
-                    },(e -> qa.setInvalidateAttempt(true)),
-                    () -> {
-                        attemptLog.setResult(calculateResult(qa.getAnswers()));
+                        return qAttempt;
+                    })
+                    .flatMap(quizAttempt1 -> {
+                        AttemptLog attemptLog = new AttemptLog();
+                        attemptLog.setTimestamp(LocalDateTime.now());
+                        attemptLog.setPlayerId(quizAttempt1.getPlayerId());
+                        attemptLog.setResult(calculateResult(quizAttempt1.getAnswers()));
+                        log.info("Attempt log " + attemptLog);
+                        return attemptLogRepository.save(attemptLog).log();
+                    }).flatMap(attemptLog1 -> {
+                        log.info("Reached here " + attemptLog1.getId());
+                        return Mono.just(qa);
                     });
-
-
-            return  attemptLogRepository.save(attemptLog).log()
-                    .flatMap(attemptLog1 -> Mono.just(qa));
         });
-
     }
-
-
 
     private Double calculateResult(List<AnsweredQuestion> answers) {
        double correctCount = answers.
@@ -115,7 +123,9 @@ public class QuizHandler {
                                 .filter(answer -> answer.isResult())
                                 .count();
        log.info("Correct answer count " + correctCount);
-       return correctCount / (double)answers.size();
+
+
+       return 100.00d * (correctCount / (double)answers.size()) ;
 
     }
 
